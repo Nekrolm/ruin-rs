@@ -225,6 +225,36 @@ mod tests {
     }
 
     #[test]
+    fn test_fn_statement_syntax() {
+        let source = r#"
+            fn add_one(x: int) -> int = x + 1;
+            add_one(5)
+        "#;
+        let result = eval(source, Scope::default());
+        assert_eq!(result, Ok(Value::Int(6)));
+    }
+
+    #[test]
+    fn test_fn_statement_without_return_type() {
+        let source = r#"
+            fn identity(x: int) = x;
+            identity(42)
+        "#;
+        let result = eval(source, Scope::default());
+        assert_eq!(result, Ok(Value::Int(42)));
+    }
+
+    #[test]
+    fn test_fn_statement_multiple_params() {
+        let source = r#"
+            fn add(x: int, y: int) -> int = x + y;
+            add(3, 4)
+        "#;
+        let result = eval(source, Scope::default());
+        assert_eq!(result, Ok(Value::Int(7)));
+    }
+
+    #[test]
     fn test_eval_with_scope() {
         let mut initial_scope = Scope { variables: HashMap::new() };
         initial_scope.variables.insert("x".to_string(), Value::Int(10));

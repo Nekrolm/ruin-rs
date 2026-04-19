@@ -132,6 +132,25 @@ impl Interpreter {
                 self.define(name.clone(), value);
                 Ok(Value::Unit)
             }
+            Stmt::Fn {
+                name,
+                params,
+                return_type,
+                body,
+            } => {
+                let param_names: Vec<String> = params.iter().map(|(pname, _)| pname.clone()).collect();
+                let captured_scope = Scope {
+                    variables: self.scopes.iter().flat_map(|s| &s.variables).map(|(k,v)| (k.clone(), v.clone())).collect(),
+                };
+                let value = Value::Function {
+                    params: param_names,
+                    captured_scope,
+                    body: Box::new(body.clone()),
+                    return_type: return_type.clone(),
+                };
+                self.define(name.clone(), value);
+                Ok(Value::Unit)
+            }
             Stmt::Assign { name, expr } => {
                 let value = self.eval_expression(expr)?;
                 self.assign(name, value)?;

@@ -26,6 +26,7 @@ This project implements a complete interpreter for the "Ruin" programming langua
 
 ### Syntax
 - Variable declarations: `let x : int = 5;`
+- Function definitions: `fn func_name(param: type, ...) -> return_type = expression;`
 - Assignments: `x = 10;`
 - Arithmetic: `+`, `-`, `*`, `/`
 - Comparisons: `==`, `!=`, `<`, `>`, `<=`, `>=`

@@ -84,6 +84,12 @@ pub enum Stmt {
         type_ann: Option<TypeAnnotation>,
         expr: Expr,
     },
+    Fn {
+        name: String,
+        params: Vec<(String, TypeAnnotation)>,
+        return_type: Option<TypeAnnotation>,
+        body: Expr,
+    },
     Assign {
         name: String,
         expr: Expr,

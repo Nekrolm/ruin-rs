@@ -97,6 +97,40 @@ impl Parser {
             let expr = self.parse_expression()?;
             self.expect(Token::Semicolon)?;
             Ok(Stmt::Let { name, type_ann, expr })
+        } else if self.check(|t| matches!(t, Token::Fn)) {
+            self.bump();
+            let name = self.consume_ident()?;
+            self.expect(Token::LParen)?;
+            let mut params = Vec::new();
+            if !self.check(|t| matches!(t, Token::RParen)) {
+                loop {
+                    let param_name = self.consume_ident()?;
+                    self.expect(Token::Colon)?;
+                    let param_type = self.parse_type_annotation()?;
+                    params.push((param_name, param_type));
+                    if self.check(|t| matches!(t, Token::Comma)) {
+                        self.bump();
+                    } else {
+                        break;
+                    }
+                }
+            }
+            self.expect(Token::RParen)?;
+            let return_type = if self.check(|t| matches!(t, Token::Arrow)) {
+                self.bump();
+                Some(self.parse_type_annotation()?)
+            } else {
+                None
+            };
+            self.expect(Token::Assign)?;
+            let body = self.parse_expression()?;
+            self.expect(Token::Semicolon)?;
+            Ok(Stmt::Fn {
+                name,
+                params,
+                return_type,
+                body,
+            })
         } else if self.check(|t| matches!(t, Token::Return)) {
             self.bump();
             let expr = if self.check(|t| matches!(t, Token::Semicolon)) {
