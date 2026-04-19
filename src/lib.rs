@@ -1,0 +1,144 @@
+pub mod ast;
+pub mod interpreter;
+pub mod lexer;
+pub mod parser;
+
+pub use ast::{Expr, Stmt, TypeAnnotation};
+pub use interpreter::{Scope, Value};
+
+pub fn run_program(source: &str) -> Result<(), String> {
+    let tokens = lexer::lex(source)?;
+    let program = parser::Parser::new(tokens).parse_program()?;
+    let mut interpreter = interpreter::Interpreter::new();
+    interpreter.execute_program(&program)?;
+    Ok(())
+}
+
+pub fn eval(script: &str, initial_scope: Scope) -> Result<Value, String> {
+    let tokens = lexer::lex(script)?;
+    let program = parser::Parser::new(tokens).parse_program()?;
+    let mut interpreter = interpreter::Interpreter::new();
+    interpreter.set_global_scope(initial_scope);
+    interpreter.execute_program(&program)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+
+    #[test]
+    fn run_basic_program() {
+        let source = r#"
+            let x : int = 5;
+            let y : int = x + 2;
+            x + y
+        "#;
+
+        let result = eval(source, Scope::default());
+        assert_eq!(result, Ok(Value::Int(12)));
+    }
+
+    #[test]
+    fn test_simple_function() {
+        let source = r#"
+            let add_one : fn(x: int) -> int = x + 1;
+            add_one(5)
+        "#;
+        let result = eval(source, Scope::default());
+        assert_eq!(result, Ok(Value::Int(6)));
+    }
+
+    #[test]
+    fn test_function_without_return_type() {
+        let source = r#"
+            let add_one : fn(x: int) -> int = x + 1;
+            add_one(5)
+        "#;
+        let result = eval(source, Scope::default());
+        assert_eq!(result, Ok(Value::Int(6)));
+    }
+
+    #[test]
+    fn test_function_with_multiple_params() {
+        let source = r#"
+            let add : fn(x: int, y: int) -> int = x + y;
+            add(3, 4)
+        "#;
+        let result = eval(source, Scope::default());
+        assert_eq!(result, Ok(Value::Int(7)));
+    }
+
+    #[test]
+    fn test_closure_capture() {
+        let source = r#"
+            let y : int = 10;
+            let add_y : fn(x: int) -> int = x + y;
+            add_y(5)
+        "#;
+        let result = eval(source, Scope { variables: HashMap::new() });
+        assert_eq!(result, Ok(Value::Int(15)));
+    }
+
+    #[test]
+    fn test_function_with_return_statement() {
+        let source = r#"
+            let sign : fn(x: int) -> int = {
+                if x > 0 {
+                    return 1;
+                } else {
+                    return 0;
+                }
+            };
+            sign(5)
+        "#;
+        let result = eval(source, Scope { variables: HashMap::new() });
+        assert_eq!(result, Ok(Value::Int(1)));
+    }
+
+    #[test]
+    fn test_function_empty_return() {
+        let source = r#"
+            let test : fn(x: int) -> int = {
+                if x > 5 {
+                    return 10;
+                }
+                x
+            };
+            test(8)
+        "#;
+        let result = eval(source, Scope { variables: HashMap::new() });
+        assert_eq!(result, Ok(Value::Int(10)));
+    }
+
+    #[test]
+    fn test_nested_function_calls() {
+        let source = r#"
+            let mul_two : fn(x: int) -> int = x * 2;
+            let add_one : fn(x: int) -> int = x + 1;
+            mul_two(add_one(3))
+        "#;
+        let result = eval(source, Scope { variables: HashMap::new() });
+        assert_eq!(result, Ok(Value::Int(8)));
+    }
+
+    #[test]
+    fn test_function_in_expression() {
+        let source = r#"
+            let double : fn(x: int) -> int = x * 2;
+            double(5) + 3
+        "#;
+        let result = eval(source, Scope { variables: HashMap::new() });
+        assert_eq!(result, Ok(Value::Int(13)));
+    }
+
+    #[test]
+    fn test_eval_with_scope() {
+        let mut initial_scope = Scope { variables: HashMap::new() };
+        initial_scope.variables.insert("x".to_string(), Value::Int(10));
+        let script = "x + 5";
+        let result = eval(script, initial_scope);
+        assert_eq!(result, Ok(Value::Int(15)));
+    }
+}
