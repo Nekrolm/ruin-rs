@@ -8,6 +8,7 @@ pub enum Value {
     Str(String),
     Bool(bool),
     Unit,
+    Array(Vec<Value>),
     Function {
         params: Vec<String>,
         captured_scope: Scope,
@@ -24,6 +25,7 @@ impl Value {
             Value::Str(_) => "string",
             Value::Bool(_) => "bool",
             Value::Unit => "unit",
+            Value::Array(_) => "array",
             Value::Function { .. } => "function",
         }
     }
@@ -66,6 +68,10 @@ impl<'a> Interpreter<'a> {
     }
 
     fn define(&mut self, name: String, value: Value) {
+        // Skip defining underscore (wildcard variable)
+        if name == "_" {
+            return;
+        }
         if let Some(scope) = self.local_scopes.last_mut() {
             scope.variables.insert(name, value);
         } else {
@@ -195,7 +201,10 @@ impl<'a> Interpreter<'a> {
             }
             Stmt::Assign { name, expr } => {
                 let value = self.eval_expression(expr)?;
-                self.assign(name, value)?;
+                // Skip assignment to underscore (wildcard variable)
+                if name != "_" {
+                    self.assign(name, value)?;
+                }
                 Ok(Value::Unit)
             }
             Stmt::Return(expr) => {
@@ -288,11 +297,23 @@ impl<'a> Interpreter<'a> {
                                 Value::Str(s) => s,
                                 Value::Bool(b) => b.to_string(),
                                 Value::Unit => "unit".into(),
+                                Value::Array(_) => "<array>".into(),
                                 Value::Function { .. } => "<function>".into(),
                             })
                             .collect();
                         println!("{}", output.join(" "));
                         return Ok(Value::Unit);
+                    } else if name == "len" {
+                        if args.len() != 1 {
+                            return Err("len() expects exactly 1 argument".into());
+                        }
+                        let arg_val = self.eval_expression(&args[0])?;
+                        match arg_val {
+                            Value::Array(elements) => {
+                                return Ok(Value::Int(elements.len() as i64));
+                            }
+                            _ => return Err("len() expects an array argument".into()),
+                        }
                     }
                 }
 
@@ -445,6 +466,25 @@ impl<'a> Interpreter<'a> {
                 self.pending_return = Some(value);
                 Ok(Value::Unit) // or something, but since it's return, maybe not reached
             }
+            Expr::ArrayLiteral(elements) => {
+                let values: Result<Vec<_>, _> =
+                    elements.iter().map(|expr| self.eval_expression(expr)).collect();
+                Ok(Value::Array(values?))
+            }
+            Expr::Index { array, index } => {
+                let array_val = self.eval_expression(array)?;
+                let index_val = self.eval_expression(index)?;
+                match (array_val, index_val) {
+                    (Value::Array(elements), Value::Int(idx)) => {
+                        if idx < 0 || idx as usize >= elements.len() {
+                            panic!("Array index out of bounds: {} (array length: {})", 
+                                   idx, elements.len());
+                        }
+                        Ok(elements[idx as usize].clone())
+                    }
+                    _ => Err("Array indexing requires array and integer index".into()),
+                }
+            }
             Expr::Block(statements) => self.execute_block(statements),
         }
     }
@@ -529,6 +569,26 @@ impl<'a> Interpreter<'a> {
             TypeAnnotation::String => matches!(value, Value::Str(_)),
             TypeAnnotation::Bool => matches!(value, Value::Bool(_)),
             TypeAnnotation::Never => false,
+            TypeAnnotation::Array(elem_type, size) => {
+                match value {
+                    Value::Array(elements) => {
+                        // Check element types
+                        for elem in elements {
+                            if !Self::check_type(elem_type, elem) {
+                                return false;
+                            }
+                        }
+                        // Check size if fixed
+                        match size {
+                            ArraySize::Fixed(expected_size) => {
+                                elements.len() as i64 == *expected_size
+                            }
+                            ArraySize::Inferred => true,
+                        }
+                    }
+                    _ => false,
+                }
+            }
             TypeAnnotation::Fn(_, _) => matches!(value, Value::Function { .. }),
             TypeAnnotation::Custom(_) => true,
         }
@@ -668,5 +728,196 @@ mod tests {
             }
             _ => panic!("Expected function"),
         }
+    }
+
+    #[test]
+    fn test_array_literal_and_indexing() {
+        let mut scope = Scope {
+            variables: HashMap::new(),
+        };
+
+        let mut interpreter = Interpreter::new(&mut scope);
+
+        // Array literal: [1, 2, 3]
+        let array_expr = Expr::ArrayLiteral(vec![
+            Expr::Literal(Literal::Int(1)),
+            Expr::Literal(Literal::Int(2)),
+            Expr::Literal(Literal::Int(3)),
+        ]);
+
+        let result = interpreter.eval_expression(&array_expr);
+        assert!(result.is_ok());
+        match result.unwrap() {
+            Value::Array(elements) => {
+                assert_eq!(elements.len(), 3);
+                assert_eq!(elements[0], Value::Int(1));
+                assert_eq!(elements[1], Value::Int(2));
+                assert_eq!(elements[2], Value::Int(3));
+            }
+            _ => panic!("Expected array value"),
+        }
+    }
+
+    #[test]
+    fn test_array_indexing() {
+        let mut scope = Scope {
+            variables: HashMap::new(),
+        };
+
+        let mut interpreter = Interpreter::new(&mut scope);
+
+        // Define array in scope
+        let array = Value::Array(vec![
+            Value::Int(10),
+            Value::Int(20),
+            Value::Int(30),
+        ]);
+        interpreter.define("arr".to_string(), array);
+
+        // Access arr[0]
+        let index_expr = Expr::Index {
+            array: Box::new(Expr::Ident("arr".to_string())),
+            index: Box::new(Expr::Literal(Literal::Int(0))),
+        };
+
+        let result = interpreter.eval_expression(&index_expr);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Value::Int(10));
+
+        // Access arr[2]
+        let index_expr2 = Expr::Index {
+            array: Box::new(Expr::Ident("arr".to_string())),
+            index: Box::new(Expr::Literal(Literal::Int(2))),
+        };
+
+        let result2 = interpreter.eval_expression(&index_expr2);
+        assert!(result2.is_ok());
+        assert_eq!(result2.unwrap(), Value::Int(30));
+    }
+
+    #[test]
+    fn test_nested_array_indexing() {
+        let mut scope = Scope {
+            variables: HashMap::new(),
+        };
+
+        let mut interpreter = Interpreter::new(&mut scope);
+
+        // Define nested array: [[1, 2], [3, 4]]
+        let nested_array = Value::Array(vec![
+            Value::Array(vec![Value::Int(1), Value::Int(2)]),
+            Value::Array(vec![Value::Int(3), Value::Int(4)]),
+        ]);
+        interpreter.define("nested".to_string(), nested_array);
+
+        // Access nested[0][1]
+        let inner_index = Expr::Index {
+            array: Box::new(Expr::Ident("nested".to_string())),
+            index: Box::new(Expr::Literal(Literal::Int(0))),
+        };
+
+        let outer_index = Expr::Index {
+            array: Box::new(inner_index),
+            index: Box::new(Expr::Literal(Literal::Int(1))),
+        };
+
+        let result = interpreter.eval_expression(&outer_index);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Value::Int(2));
+    }
+
+    #[test]
+    fn test_len_builtin() {
+        let mut scope = Scope {
+            variables: HashMap::new(),
+        };
+
+        let mut interpreter = Interpreter::new(&mut scope);
+
+        // Define array
+        let array = Value::Array(vec![
+            Value::Int(1),
+            Value::Int(2),
+            Value::Int(3),
+            Value::Int(4),
+        ]);
+        interpreter.define("arr".to_string(), array);
+
+        // Call len(arr)
+        let len_call = Expr::Call {
+            callee: Box::new(Expr::Ident("len".to_string())),
+            args: vec![Expr::Ident("arr".to_string())],
+        };
+
+        let result = interpreter.eval_expression(&len_call);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Value::Int(4));
+    }
+
+    #[test]
+    fn test_underscore_wildcard() {
+        let mut scope = Scope {
+            variables: HashMap::new(),
+        };
+
+        let mut interpreter = Interpreter::new(&mut scope);
+
+        // Define using underscore (should not create variable)
+        interpreter.define("_".to_string(), Value::Int(100));
+
+        // Lookup underscore (should not find it)
+        let result = interpreter.lookup("_");
+        assert!(result.is_err(), "Underscore should not be stored in scope");
+    }
+
+    #[test]
+    fn test_array_check_type() {
+        // Array of ints with fixed size
+        let array_type = TypeAnnotation::Array(
+            Box::new(TypeAnnotation::Int),
+            ArraySize::Fixed(3),
+        );
+
+        let value = Value::Array(vec![
+            Value::Int(1),
+            Value::Int(2),
+            Value::Int(3),
+        ]);
+
+        assert!(Interpreter::check_type(&array_type, &value));
+
+        // Mismatched size
+        let value2 = Value::Array(vec![
+            Value::Int(1),
+            Value::Int(2),
+        ]);
+        assert!(!Interpreter::check_type(&array_type, &value2));
+
+        // Mismatched element type
+        let value3 = Value::Array(vec![
+            Value::Int(1),
+            Value::Str("hello".to_string()),
+            Value::Int(3),
+        ]);
+        assert!(!Interpreter::check_type(&array_type, &value3));
+    }
+
+    #[test]
+    fn test_array_inferred_size() {
+        // Array of ints with inferred size
+        let array_type = TypeAnnotation::Array(
+            Box::new(TypeAnnotation::Int),
+            ArraySize::Inferred,
+        );
+
+        let value1 = Value::Array(vec![Value::Int(1), Value::Int(2)]);
+        assert!(Interpreter::check_type(&array_type, &value1));
+
+        let value2 = Value::Array(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
+        assert!(Interpreter::check_type(&array_type, &value2));
+
+        // But element type must still match
+        let value3 = Value::Array(vec![Value::Str("a".to_string())]);
+        assert!(!Interpreter::check_type(&array_type, &value3));
     }
 }

@@ -1,0 +1,43 @@
+// Test 1: Simple array literal
+let arr1 : = [1, 2, 3];
+print(arr1[0]);
+print(arr1[1]);
+print(arr1[2]);
+
+// Test 2: len() function
+print(len(arr1));
+
+// Test 3: Array with explicit type and inferred size
+let arr2 : [int; _] = [10, 20, 30, 40];
+print(len(arr2));
+
+// Test 4: String array
+let arr3 : = ["hello", "world"];
+print(arr3[0]);
+print(arr3[1]);
+print(len(arr3));
+
+// Test 5: Underscore wildcard variable
+let _ : = 100;
+let x : int = 50;
+let _ : = x;
+print(x);
+
+// Test 6: Nested arrays
+let nested : = [[1, 2], [3, 4], [5, 6]];
+print(nested[0][0]);
+print(nested[1][1]);
+print(nested[2][0]);
+
+// Test 7: Array indexing with variable
+let idx : int = 1;
+print(arr1[idx]);
+
+// Test 8: Float array
+let farr : [float; _] = [1.5, 2.5, 3.5];
+print(len(farr));
+print(farr[0]);
+
+// Test 9: Mixed operations
+let arr4 : = [5, 10, 15];
+print(arr4[0] + arr4[1]);

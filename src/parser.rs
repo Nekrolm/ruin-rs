@@ -43,7 +43,26 @@ impl Parser {
     }
 
     fn parse_type_annotation(&mut self) -> Result<TypeAnnotation, String> {
-        if self.check(|t| matches!(t, Token::Fn)) {
+        if self.check(|t| matches!(t, Token::LBracket)) {
+            // Array type annotation: [Type; size]
+            self.bump();
+            let element_type = Box::new(self.parse_type_annotation()?);
+            self.expect(Token::Semicolon)?;
+            let size = if self.check(|t| matches!(t, Token::Ident(name) if name == "_")) {
+                self.bump();
+                ArraySize::Inferred
+            } else if self.check(|t| matches!(t, Token::IntLiteral(_))) {
+                if let Some(Token::IntLiteral(n)) = self.bump() {
+                    ArraySize::Fixed(n)
+                } else {
+                    return Err("Expected integer or underscore for array size".into());
+                }
+            } else {
+                return Err("Expected integer or underscore for array size".into());
+            };
+            self.expect(Token::RBracket)?;
+            Ok(TypeAnnotation::Array(element_type, size))
+        } else if self.check(|t| matches!(t, Token::Fn)) {
             self.bump();
             self.expect(Token::LParen)?;
             let mut params = Vec::new();
@@ -311,24 +330,24 @@ impl Parser {
     }
 
     fn parse_primary(&mut self) -> Result<Expr, String> {
-        match self.bump() {
-            Some(Token::IntLiteral(value)) => Ok(Expr::Literal(Literal::Int(value))),
-            Some(Token::FloatLiteral(value)) => Ok(Expr::Literal(Literal::Float(value))),
-            Some(Token::StringLiteral(value)) => Ok(Expr::Literal(Literal::String(value))),
-            Some(Token::True) => Ok(Expr::Literal(Literal::Bool(true))),
-            Some(Token::False) => Ok(Expr::Literal(Literal::Bool(false))),
-            Some(Token::Fn) => self.parse_fn_expression(),
-            Some(Token::Loop) => self.parse_loop_expression(),
-            Some(Token::While) => self.parse_while_expression(),
-            Some(Token::Break) => self.parse_break_expression(),
-            Some(Token::Continue) => Ok(Expr::Continue),
+        let mut expr = match self.bump() {
+            Some(Token::IntLiteral(value)) => Expr::Literal(Literal::Int(value)),
+            Some(Token::FloatLiteral(value)) => Expr::Literal(Literal::Float(value)),
+            Some(Token::StringLiteral(value)) => Expr::Literal(Literal::String(value)),
+            Some(Token::True) => Expr::Literal(Literal::Bool(true)),
+            Some(Token::False) => Expr::Literal(Literal::Bool(false)),
+            Some(Token::Fn) => return self.parse_fn_expression(),
+            Some(Token::Loop) => return self.parse_loop_expression(),
+            Some(Token::While) => return self.parse_while_expression(),
+            Some(Token::Break) => return self.parse_break_expression(),
+            Some(Token::Continue) => Expr::Continue,
             Some(Token::Return) => {
                 let expr = if self.check(|t| matches!(t, Token::Semicolon)) {
                     None
                 } else {
                     Some(Box::new(self.parse_expression()?))
                 };
-                Ok(Expr::Return(expr))
+                return Ok(Expr::Return(expr));
             }
             Some(Token::Ident(name)) => {
                 if self.check(|t| matches!(t, Token::LParen)) {
@@ -345,28 +364,66 @@ impl Parser {
                         }
                     }
                     self.expect(Token::RParen)?;
-                    Ok(Expr::Call {
+                    Expr::Call {
                         callee: Box::new(Expr::Ident(name)),
                         args,
-                    })
+                    }
                 } else {
-                    Ok(Expr::Ident(name))
+                    Expr::Ident(name)
                 }
             }
             Some(Token::LParen) => {
                 let expr = self.parse_expression()?;
                 self.expect(Token::RParen)?;
-                Ok(expr)
+                expr
             }
-            Some(Token::If) => self.parse_if_expression(),
+            Some(Token::LBracket) => {
+                // Array literal or implicit type annotation
+                // Position is already past [, so we parse elements
+                let mut elements = Vec::new();
+                if !self.check(|t| matches!(t, Token::RBracket)) {
+                    loop {
+                        elements.push(self.parse_expression()?);
+                        if self.check(|t| matches!(t, Token::Comma)) {
+                            self.bump();
+                            // Allow trailing comma
+                            if self.check(|t| matches!(t, Token::RBracket)) {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                self.expect(Token::RBracket)?;
+                Expr::ArrayLiteral(elements)
+            }
+            Some(Token::If) => return self.parse_if_expression(),
             Some(Token::LBrace) => {
                 self.position -= 1;
                 let statements = self.parse_block()?;
-                Ok(Expr::Block(statements))
+                Expr::Block(statements)
             }
-            Some(token) => Err(format!("Unexpected token in expression: {:?}", token)),
-            None => Err("Unexpected end of input".into()),
+            Some(token) => return Err(format!("Unexpected token in expression: {:?}", token)),
+            None => return Err("Unexpected end of input".into()),
+        };
+
+        // Handle postfix operations: indexing
+        loop {
+            if self.check(|t| matches!(t, Token::LBracket)) {
+                self.bump();
+                let index = self.parse_expression()?;
+                self.expect(Token::RBracket)?;
+                expr = Expr::Index {
+                    array: Box::new(expr),
+                    index: Box::new(index),
+                };
+            } else {
+                break;
+            }
         }
+
+        Ok(expr)
     }
 
     fn parse_if_expression(&mut self) -> Result<Expr, String> {

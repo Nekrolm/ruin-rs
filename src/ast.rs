@@ -1,10 +1,17 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ArraySize {
+    Fixed(i64),
+    Inferred,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeAnnotation {
     Int,
     Float,
     String,
     Bool,
     Never,
+    Array(Box<TypeAnnotation>, ArraySize),
     Fn(Vec<(String, TypeAnnotation)>, Option<Box<TypeAnnotation>>),
     Custom(String),
 }
@@ -70,6 +77,11 @@ pub enum Expr {
         callee: Box<Expr>,
         args: Vec<Expr>,
     },
+    Index {
+        array: Box<Expr>,
+        index: Box<Expr>,
+    },
+    ArrayLiteral(Vec<Expr>),
     Fn {
         params: Vec<(String, Option<TypeAnnotation>)>,
         body: Box<Expr>,

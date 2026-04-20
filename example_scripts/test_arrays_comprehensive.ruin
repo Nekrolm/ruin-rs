@@ -1,0 +1,49 @@
+// Comprehensive array feature test
+// Test all array functionality
+
+// Test 1: Basic array creation and indexing
+let nums : [int; _] = [10, 20, 30, 40, 50];
+print(nums[0]);
+print(nums[4]);
+
+// Test 2: Array length
+print(len(nums));
+
+// Test 3: Nested arrays
+let matrix : = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
+print(matrix[1][1]);
+print(matrix[2][0]);
+
+// Test 4: String arrays
+let words : [string; _] = ["hello", "world", "rust"];
+print(words[0]);
+print(len(words));
+
+// Test 5: Float arrays
+let floats : [float; _] = [1.1, 2.2, 3.3];
+print(floats[1]);
+
+// Test 6: Array indexing with expressions
+let idx : int = 2;
+print(nums[idx]);
+print(nums[idx + 1]);
+
+// Test 7: Underscore wildcard
+let _ : int = 999;
+let x : int = 42;
+let _ : = x;
+print(x);
+
+// Test 8: Multiple levels of nesting
+let deep : = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]];
+print(deep[0][0][1]);
+print(deep[1][1][0]);
+
+// Test 9: Mixed types in operations with arrays
+let arr1 : [int; _] = [5, 10, 15];
+let arr2 : [int; _] = [1, 2, 3];
+print(arr1[0] + arr2[1]);
+print(arr1[2] - arr2[0]);
+
+print(len(arr1));
+print(len(arr2));

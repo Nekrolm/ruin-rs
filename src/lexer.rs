@@ -32,6 +32,8 @@ pub enum Token {
     Tilde,
     LParen,
     RParen,
+    LBracket,
+    RBracket,
     LBrace,
     RBrace,
     Semicolon,
@@ -141,6 +143,14 @@ pub fn lex(source: &str) -> Result<Vec<Token>, String> {
             ')' => {
                 chars.next();
                 tokens.push(Token::RParen);
+            }
+            '[' => {
+                chars.next();
+                tokens.push(Token::LBracket);
+            }
+            ']' => {
+                chars.next();
+                tokens.push(Token::RBracket);
             }
             '{' => {
                 chars.next();
