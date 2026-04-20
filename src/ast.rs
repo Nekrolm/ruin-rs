@@ -4,6 +4,7 @@ pub enum TypeAnnotation {
     Float,
     String,
     Bool,
+    Never,
     Fn(Vec<(String, TypeAnnotation)>, Option<Box<TypeAnnotation>>),
     Custom(String),
 }
@@ -15,6 +16,7 @@ impl TypeAnnotation {
             "f64" => TypeAnnotation::Float,
             "bool" => TypeAnnotation::Bool,
             "String" => TypeAnnotation::String,
+            "never" => TypeAnnotation::Never,
             other => TypeAnnotation::Custom(other.to_string()),
         }
     }
@@ -73,6 +75,17 @@ pub enum Expr {
         body: Box<Expr>,
         return_type: Option<TypeAnnotation>,
     },
+    Loop {
+        body: Box<Expr>,
+    },
+    While {
+        condition: Box<Expr>,
+        body: Box<Expr>,
+    },
+    Break {
+        value: Option<Box<Expr>>,
+    },
+    Continue,
     Return(Option<Box<Expr>>),
     Block(Vec<Stmt>),
 }

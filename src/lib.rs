@@ -77,7 +77,12 @@ mod tests {
             let add_y : fn(x: int) -> int = x + y;
             add_y(5)
         "#;
-        let result = eval(source, Scope { variables: HashMap::new() });
+        let result = eval(
+            source,
+            Scope {
+                variables: HashMap::new(),
+            },
+        );
         assert_eq!(result, Ok(Value::Int(15)));
     }
 
@@ -93,7 +98,12 @@ mod tests {
             };
             sign(5)
         "#;
-        let result = eval(source, Scope { variables: HashMap::new() });
+        let result = eval(
+            source,
+            Scope {
+                variables: HashMap::new(),
+            },
+        );
         assert_eq!(result, Ok(Value::Int(1)));
     }
 
@@ -108,7 +118,12 @@ mod tests {
             };
             test(8)
         "#;
-        let result = eval(source, Scope { variables: HashMap::new() });
+        let result = eval(
+            source,
+            Scope {
+                variables: HashMap::new(),
+            },
+        );
         assert_eq!(result, Ok(Value::Int(10)));
     }
 
@@ -119,7 +134,12 @@ mod tests {
             let add_one : fn(x: int) -> int = x + 1;
             mul_two(add_one(3))
         "#;
-        let result = eval(source, Scope { variables: HashMap::new() });
+        let result = eval(
+            source,
+            Scope {
+                variables: HashMap::new(),
+            },
+        );
         assert_eq!(result, Ok(Value::Int(8)));
     }
 
@@ -129,7 +149,12 @@ mod tests {
             let double : fn(x: int) -> int = x * 2;
             double(5) + 3
         "#;
-        let result = eval(source, Scope { variables: HashMap::new() });
+        let result = eval(
+            source,
+            Scope {
+                variables: HashMap::new(),
+            },
+        );
         assert_eq!(result, Ok(Value::Int(13)));
     }
 
@@ -152,39 +177,69 @@ mod tests {
             };
             a_func
         "#;
-        
-        let scope = Scope { variables: HashMap::new() };
+
+        let scope = Scope {
+            variables: HashMap::new(),
+        };
         let result = eval(source, scope.clone());
         let func_value = result.unwrap();
-        
+
         // Test case 1: B return path, A return path (x = 3)
         // B: x > 0, returns 3*2 = 6
         // A: 6 > 5, returns 6+1 = 7
         if let Value::Function { .. } = &func_value {
             let call_script = "a_func(3)";
-            let call_result = eval(call_script, Scope { variables: [("a_func".to_string(), func_value.clone())].into_iter().collect() });
+            let call_result = eval(
+                call_script,
+                Scope {
+                    variables: [("a_func".to_string(), func_value.clone())]
+                        .into_iter()
+                        .collect(),
+                },
+            );
             assert_eq!(call_result, Ok(Value::Int(7)));
         }
-        
+
         // Test case 2: B return path, A non-return path (x = 2)
         // B: x > 0, returns 2*2 = 4
         // A: 4 <= 5, returns 4+2 = 6
         let call_script = "a_func(2)";
-        let call_result = eval(call_script, Scope { variables: [("a_func".to_string(), func_value.clone())].into_iter().collect() });
+        let call_result = eval(
+            call_script,
+            Scope {
+                variables: [("a_func".to_string(), func_value.clone())]
+                    .into_iter()
+                    .collect(),
+            },
+        );
         assert_eq!(call_result, Ok(Value::Int(6)));
-        
+
         // Test case 3: B non-return path, A return path (x = -2)
         // B: x <= 0, returns -(-2)*3 = 6
         // A: 6 > 5, returns 6+1 = 7
         let call_script = "a_func(-2)";
-        let call_result = eval(call_script, Scope { variables: [("a_func".to_string(), func_value.clone())].into_iter().collect() });
+        let call_result = eval(
+            call_script,
+            Scope {
+                variables: [("a_func".to_string(), func_value.clone())]
+                    .into_iter()
+                    .collect(),
+            },
+        );
         assert_eq!(call_result, Ok(Value::Int(7)));
-        
+
         // Test case 4: B non-return path, A non-return path (x = 0)
         // B: x <= 0, returns -(0)*3 = 0
         // A: 0 <= 5, returns 0+2 = 2
         let call_script = "a_func(0)";
-        let call_result = eval(call_script, Scope { variables: [("a_func".to_string(), func_value.clone())].into_iter().collect() });
+        let call_result = eval(
+            call_script,
+            Scope {
+                variables: [("a_func".to_string(), func_value.clone())]
+                    .into_iter()
+                    .collect(),
+            },
+        );
         assert_eq!(call_result, Ok(Value::Int(2)));
     }
 
@@ -198,29 +253,59 @@ mod tests {
             ;
             factorial
         "#;
-        
-        let scope = Scope { variables: HashMap::new() };
+
+        let scope = Scope {
+            variables: HashMap::new(),
+        };
         let result = eval(source, scope.clone());
         let func_value = result.unwrap();
-        
+
         // Test factorial of 0
         let call_script = "factorial(0)";
-        let call_result = eval(call_script, Scope { variables: [("factorial".to_string(), func_value.clone())].into_iter().collect() });
+        let call_result = eval(
+            call_script,
+            Scope {
+                variables: [("factorial".to_string(), func_value.clone())]
+                    .into_iter()
+                    .collect(),
+            },
+        );
         assert_eq!(call_result, Ok(Value::Int(1)));
-        
+
         // Test factorial of 1
         let call_script = "factorial(1)";
-        let call_result = eval(call_script, Scope { variables: [("factorial".to_string(), func_value.clone())].into_iter().collect() });
+        let call_result = eval(
+            call_script,
+            Scope {
+                variables: [("factorial".to_string(), func_value.clone())]
+                    .into_iter()
+                    .collect(),
+            },
+        );
         assert_eq!(call_result, Ok(Value::Int(1)));
-        
+
         // Test factorial of 5
         let call_script = "factorial(5)";
-        let call_result = eval(call_script, Scope { variables: [("factorial".to_string(), func_value.clone())].into_iter().collect() });
+        let call_result = eval(
+            call_script,
+            Scope {
+                variables: [("factorial".to_string(), func_value.clone())]
+                    .into_iter()
+                    .collect(),
+            },
+        );
         assert_eq!(call_result, Ok(Value::Int(120)));
-        
+
         // Test factorial of 3
         let call_script = "factorial(3)";
-        let call_result = eval(call_script, Scope { variables: [("factorial".to_string(), func_value.clone())].into_iter().collect() });
+        let call_result = eval(
+            call_script,
+            Scope {
+                variables: [("factorial".to_string(), func_value.clone())]
+                    .into_iter()
+                    .collect(),
+            },
+        );
         assert_eq!(call_result, Ok(Value::Int(6)));
     }
 
@@ -256,8 +341,12 @@ mod tests {
 
     #[test]
     fn test_eval_with_scope() {
-        let mut initial_scope = Scope { variables: HashMap::new() };
-        initial_scope.variables.insert("x".to_string(), Value::Int(10));
+        let mut initial_scope = Scope {
+            variables: HashMap::new(),
+        };
+        initial_scope
+            .variables
+            .insert("x".to_string(), Value::Int(10));
         let script = "x + 5";
         let result = eval(script, initial_scope);
         assert_eq!(result, Ok(Value::Int(15)));

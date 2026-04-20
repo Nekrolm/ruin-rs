@@ -304,6 +304,10 @@ impl Parser {
             Some(Token::True) => Ok(Expr::Literal(Literal::Bool(true))),
             Some(Token::False) => Ok(Expr::Literal(Literal::Bool(false))),
             Some(Token::Fn) => self.parse_fn_expression(),
+            Some(Token::Loop) => self.parse_loop_expression(),
+            Some(Token::While) => self.parse_while_expression(),
+            Some(Token::Break) => self.parse_break_expression(),
+            Some(Token::Continue) => Ok(Expr::Continue),
             Some(Token::Return) => {
                 let expr = if self.check(|t| matches!(t, Token::Semicolon)) {
                     None
@@ -371,6 +375,31 @@ impl Parser {
             then_branch: Box::new(then_branch),
             else_branch,
         })
+    }
+
+    fn parse_loop_expression(&mut self) -> Result<Expr, String> {
+        let body = self.parse_braced_expression()?;
+        Ok(Expr::Loop {
+            body: Box::new(body),
+        })
+    }
+
+    fn parse_while_expression(&mut self) -> Result<Expr, String> {
+        let condition = self.parse_expression()?;
+        let body = self.parse_braced_expression()?;
+        Ok(Expr::While {
+            condition: Box::new(condition),
+            body: Box::new(body),
+        })
+    }
+
+    fn parse_break_expression(&mut self) -> Result<Expr, String> {
+        let value = if self.check(|t| matches!(t, Token::Semicolon) || matches!(t, Token::RBrace)) {
+            None
+        } else {
+            Some(Box::new(self.parse_expression()?))
+        };
+        Ok(Expr::Break { value })
     }
 
     fn parse_braced_expression(&mut self) -> Result<Expr, String> {

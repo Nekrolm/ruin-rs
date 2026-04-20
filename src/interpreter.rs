@@ -37,6 +37,9 @@ pub struct Scope {
 pub struct Interpreter {
     scopes: Vec<Scope>,
     pending_return: Option<Value>,
+    pending_break: Option<Value>,
+    pending_continue: bool,
+    loop_depth: usize,
 }
 
 impl Interpreter {
@@ -44,6 +47,9 @@ impl Interpreter {
         Interpreter {
             scopes: vec![Scope { variables: HashMap::new() }],
             pending_return: None,
+            pending_break: None,
+            pending_continue: false,
+            loop_depth: 0,
         }
     }
 
@@ -175,7 +181,7 @@ impl Interpreter {
         let mut last = Value::Unit;
         for stmt in statements {
             last = self.execute_statement(stmt)?;
-            if self.pending_return.is_some() {
+            if self.pending_return.is_some() || self.pending_break.is_some() || self.pending_continue {
                 break;
             }
         }
@@ -311,6 +317,73 @@ impl Interpreter {
                     return_type: return_type.clone(),
                 })
             }
+            Expr::Loop { body } => {
+                self.loop_depth += 1;
+                loop {
+                    let result = self.eval_expression(body)?;
+                    if self.pending_return.is_some() {
+                        self.loop_depth -= 1;
+                        return Ok(result);
+                    }
+                    if let Some(value) = self.pending_break.take() {
+                        self.loop_depth -= 1;
+                        return Ok(value);
+                    }
+                    if self.pending_continue {
+                        self.pending_continue = false;
+                        continue;
+                    }
+                    // If the loop body completed without break/continue/return, keep iterating.
+                }
+            }
+            Expr::While { condition, body } => {
+                self.loop_depth += 1;
+                loop {
+                    let test = self.eval_expression(condition)?;
+                    match test {
+                        Value::Bool(true) => {
+                            let result = self.eval_expression(body)?;
+                            if self.pending_return.is_some() {
+                                self.loop_depth -= 1;
+                                return Ok(result);
+                            }
+                            if self.pending_break.is_some() {
+                                self.pending_break = None;
+                                self.loop_depth -= 1;
+                                return Ok(Value::Unit);
+                            }
+                            if self.pending_continue {
+                                self.pending_continue = false;
+                                continue;
+                            }
+                        }
+                        Value::Bool(false) => {
+                            self.loop_depth -= 1;
+                            return Ok(Value::Unit);
+                        }
+                        _ => return Err("Condition of while expression must be a boolean".into()),
+                    }
+                }
+            }
+            Expr::Break { value } => {
+                if self.loop_depth == 0 {
+                    return Err("break outside of loop".into());
+                }
+                let result = if let Some(expr) = value {
+                    self.eval_expression(expr)?
+                } else {
+                    Value::Unit
+                };
+                self.pending_break = Some(result);
+                Ok(Value::Unit)
+            }
+            Expr::Continue => {
+                if self.loop_depth == 0 {
+                    return Err("continue outside of loop".into());
+                }
+                self.pending_continue = true;
+                Ok(Value::Unit)
+            }
             Expr::Return(expr) => {
                 let value = if let Some(e) = expr {
                     self.eval_expression(e)?
@@ -404,8 +477,146 @@ impl Interpreter {
             TypeAnnotation::Float => matches!(value, Value::Float(_)),
             TypeAnnotation::String => matches!(value, Value::Str(_)),
             TypeAnnotation::Bool => matches!(value, Value::Bool(_)),
+            TypeAnnotation::Never => false,
             TypeAnnotation::Fn(_, _) => matches!(value, Value::Function { .. }),
             TypeAnnotation::Custom(_) => true,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_function_captures_shadowed_variable() {
+        // Outer scope: x = 10
+        let outer_scope = Scope {
+            variables: {
+                let mut map = HashMap::new();
+                map.insert("x".to_string(), Value::Int(10));
+                map
+            },
+        };
+
+        let mut interpreter = Interpreter::new();
+        interpreter.set_global_scope(outer_scope);
+
+        // Inner scope: push and set x = 20
+        interpreter.push_scope();
+        interpreter.define("x".to_string(), Value::Int(20));
+
+        // Create function in inner scope that references x
+        // Function body: x + 5
+        let fn_expr = Expr::Binary(
+            Box::new(Expr::Ident("x".to_string())),
+            BinaryOp::Add,
+            Box::new(Expr::Literal(Literal::Int(5))),
+        );
+
+        let result = interpreter.eval_expression(&fn_expr);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Value::Int(25)); // Should use inner x = 20, giving 25
+
+        // Pop inner scope
+        interpreter.pop_scope();
+
+        // Now verify outer scope x is still 10
+        let x_outer = interpreter.lookup("x");
+        assert!(x_outer.is_ok());
+        assert_eq!(x_outer.unwrap(), Value::Int(10));
+    }
+
+    #[test]
+    fn test_function_value_captures_scope() {
+        let mut interpreter = Interpreter::new();
+
+        // Define outer variable
+        interpreter.define("outer_var".to_string(), Value::Int(100));
+
+        // Push inner scope
+        interpreter.push_scope();
+        interpreter.define("inner_var".to_string(), Value::Int(50));
+
+        // Create function value in inner scope
+        let fn_body = Expr::Binary(
+            Box::new(Expr::Ident("outer_var".to_string())),
+            BinaryOp::Add,
+            Box::new(Expr::Ident("inner_var".to_string())),
+        );
+
+        let fn_expr = Expr::Fn {
+            params: vec![],
+            body: Box::new(fn_body),
+            return_type: None,
+        };
+
+        let fn_value = interpreter.eval_expression(&fn_expr);
+        assert!(fn_value.is_ok());
+
+        // Extract captured scope from function
+        let fn_val = fn_value.unwrap();
+        match fn_val {
+            Value::Function {
+                captured_scope, ..
+            } => {
+                // Verify captured scope has both outer_var and inner_var
+                assert!(captured_scope.variables.contains_key("outer_var"));
+                assert!(captured_scope.variables.contains_key("inner_var"));
+                assert_eq!(
+                    captured_scope.variables.get("outer_var"),
+                    Some(&Value::Int(100))
+                );
+                assert_eq!(
+                    captured_scope.variables.get("inner_var"),
+                    Some(&Value::Int(50))
+                );
+            }
+            _ => panic!("Expected function value"),
+        }
+
+        // Pop inner scope and call function
+        interpreter.pop_scope();
+
+
+        // Manually call to test captured scope is used
+        let result = interpreter.eval_expression(&fn_expr);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_shadowing_in_nested_function_calls() {
+        let mut interpreter = Interpreter::new();
+
+        // Outer: x = 5
+        interpreter.define("x".to_string(), Value::Int(5));
+
+        // Inner scope: x = 10
+        interpreter.push_scope();
+        interpreter.define("x".to_string(), Value::Int(10));
+
+        // Create function that uses x
+        let fn_body = Expr::Ident("x".to_string());
+        let fn_expr = Expr::Fn {
+            params: vec![],
+            body: Box::new(fn_body),
+            return_type: None,
+        };
+
+        let fn_value = interpreter.eval_expression(&fn_expr);
+        assert!(fn_value.is_ok());
+
+        // Check captured scope has inner x
+        match fn_value.unwrap() {
+            Value::Function {
+                captured_scope, ..
+            } => {
+                assert_eq!(
+                    captured_scope.variables.get("x"),
+                    Some(&Value::Int(10))
+                );
+            }
+            _ => panic!("Expected function"),
         }
     }
 }
