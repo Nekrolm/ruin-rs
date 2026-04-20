@@ -1,0 +1,2 @@
+let result : int = undefined_variable + 5;
+result

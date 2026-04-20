@@ -4,7 +4,7 @@ pub mod lexer;
 pub mod parser;
 
 pub use ast::{Expr, Stmt, TypeAnnotation};
-pub use interpreter::{Scope, Value};
+pub use interpreter::{Interpreter, InterpreterConfig, Scope, Value};
 
 pub fn run_program(source: &str) -> Result<(), String> {
     let tokens = lexer::lex(source)?;

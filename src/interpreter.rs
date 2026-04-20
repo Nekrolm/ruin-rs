@@ -1,5 +1,6 @@
 use crate::ast::*;
 use std::collections::HashMap;
+use std::io::{self, Write};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -36,6 +37,31 @@ pub struct Scope {
     pub variables: HashMap<String, Value>,
 }
 
+/// Configuration for interpreter behavior, including output handling
+pub struct InterpreterConfig {
+    pub output: Box<dyn Write>,
+}
+
+impl InterpreterConfig {
+    /// Create a new config with stdout as the default output
+    pub fn new() -> Self {
+        InterpreterConfig {
+            output: Box::new(io::stdout()),
+        }
+    }
+
+    /// Create a new config with custom output writer
+    pub fn with_output(output: Box<dyn Write>) -> Self {
+        InterpreterConfig { output }
+    }
+}
+
+impl Default for InterpreterConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct Interpreter<'a> {
     root_scope: &'a mut Scope,
     local_scopes: Vec<Scope>,
@@ -43,10 +69,17 @@ pub struct Interpreter<'a> {
     pending_break: Option<Value>,
     pending_continue: bool,
     loop_depth: usize,
+    config: InterpreterConfig,
 }
 
 impl<'a> Interpreter<'a> {
+    /// Create a new interpreter with default configuration (stdout output)
     pub fn new(scope: &'a mut Scope) -> Self {
+        Self::new_with_config(scope, InterpreterConfig::new())
+    }
+
+    /// Create a new interpreter with custom configuration
+    pub fn new_with_config(scope: &'a mut Scope, config: InterpreterConfig) -> Self {
         Interpreter {
             root_scope: scope,
             local_scopes: Vec::new(),
@@ -54,6 +87,7 @@ impl<'a> Interpreter<'a> {
             pending_break: None,
             pending_continue: false,
             loop_depth: 0,
+            config,
         }
     }
 
@@ -301,7 +335,8 @@ impl<'a> Interpreter<'a> {
                                 Value::Function { .. } => "<function>".into(),
                             })
                             .collect();
-                        println!("{}", output.join(" "));
+                        writeln!(self.config.output, "{}", output.join(" "))
+                            .map_err(|e| format!("Failed to write output: {}", e))?;
                         return Ok(Value::Unit);
                     } else if name == "len" {
                         if args.len() != 1 {
@@ -467,8 +502,10 @@ impl<'a> Interpreter<'a> {
                 Ok(Value::Unit) // or something, but since it's return, maybe not reached
             }
             Expr::ArrayLiteral(elements) => {
-                let values: Result<Vec<_>, _> =
-                    elements.iter().map(|expr| self.eval_expression(expr)).collect();
+                let values: Result<Vec<_>, _> = elements
+                    .iter()
+                    .map(|expr| self.eval_expression(expr))
+                    .collect();
                 Ok(Value::Array(values?))
             }
             Expr::Index { array, index } => {
@@ -477,8 +514,11 @@ impl<'a> Interpreter<'a> {
                 match (array_val, index_val) {
                     (Value::Array(elements), Value::Int(idx)) => {
                         if idx < 0 || idx as usize >= elements.len() {
-                            panic!("Array index out of bounds: {} (array length: {})", 
-                                   idx, elements.len());
+                            panic!(
+                                "Array index out of bounds: {} (array length: {})",
+                                idx,
+                                elements.len()
+                            );
                         }
                         Ok(elements[idx as usize].clone())
                     }
@@ -767,11 +807,7 @@ mod tests {
         let mut interpreter = Interpreter::new(&mut scope);
 
         // Define array in scope
-        let array = Value::Array(vec![
-            Value::Int(10),
-            Value::Int(20),
-            Value::Int(30),
-        ]);
+        let array = Value::Array(vec![Value::Int(10), Value::Int(20), Value::Int(30)]);
         interpreter.define("arr".to_string(), array);
 
         // Access arr[0]
@@ -873,24 +909,14 @@ mod tests {
     #[test]
     fn test_array_check_type() {
         // Array of ints with fixed size
-        let array_type = TypeAnnotation::Array(
-            Box::new(TypeAnnotation::Int),
-            ArraySize::Fixed(3),
-        );
+        let array_type = TypeAnnotation::Array(Box::new(TypeAnnotation::Int), ArraySize::Fixed(3));
 
-        let value = Value::Array(vec![
-            Value::Int(1),
-            Value::Int(2),
-            Value::Int(3),
-        ]);
+        let value = Value::Array(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
 
         assert!(Interpreter::check_type(&array_type, &value));
 
         // Mismatched size
-        let value2 = Value::Array(vec![
-            Value::Int(1),
-            Value::Int(2),
-        ]);
+        let value2 = Value::Array(vec![Value::Int(1), Value::Int(2)]);
         assert!(!Interpreter::check_type(&array_type, &value2));
 
         // Mismatched element type
@@ -905,10 +931,7 @@ mod tests {
     #[test]
     fn test_array_inferred_size() {
         // Array of ints with inferred size
-        let array_type = TypeAnnotation::Array(
-            Box::new(TypeAnnotation::Int),
-            ArraySize::Inferred,
-        );
+        let array_type = TypeAnnotation::Array(Box::new(TypeAnnotation::Int), ArraySize::Inferred);
 
         let value1 = Value::Array(vec![Value::Int(1), Value::Int(2)]);
         assert!(Interpreter::check_type(&array_type, &value1));
