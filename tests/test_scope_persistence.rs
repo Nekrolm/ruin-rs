@@ -1,5 +1,5 @@
 use ruin_rs::{Scope, Value, eval};
-use std::collections::HashMap;
+use hashbrown::HashMap;
 
 fn main() {
     // Test 1: Simple assignment to a pre-existing variable

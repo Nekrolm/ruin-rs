@@ -1,5 +1,5 @@
 use crate::ast::*;
-use std::collections::HashMap;
+use hashbrown::HashMap;
 use std::io::{self, Write};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -29,6 +29,68 @@ impl Value {
             Value::Array(_) => "array",
             Value::Function { .. } => "function",
         }
+    }
+
+    pub fn display(&self) -> String {
+        match self {
+            Value::Int(i) => i.to_string(),
+            Value::Float(f) => f.to_string(),
+            Value::Str(s) => s.clone(),
+            Value::Bool(b) => b.to_string(),
+            Value::Unit => "unit".into(),
+            Value::Array(_) => "<array>".into(),
+            Value::Function { .. } => "<function>".into(),
+        }
+    }
+
+    pub fn assign(&mut self, other: Value) -> Result<(), String> {
+        match (self, other) {
+            (Value::Int(this), Value::Int(new)) => *this = new,
+            (Value::Float(this), Value::Float(new)) => *this = new,
+            (Value::Bool(this), Value::Bool(new)) => *this = new,
+            (Value::Str(this), Value::Str(new)) => *this = new,
+            (Value::Unit, Value::Unit) => {}
+            (Value::Array(this), Value::Array(new)) => {
+                if this.len() != new.len() {
+                    return Err(format!(
+                        "Array length mismatch: expected {}, got {}",
+                        this.len(),
+                        new.len()
+                    ));
+                }
+                for (a, b) in this.iter_mut().zip(new.into_iter()) {
+                    a.assign(b)?;
+                }
+            }
+            (
+                Value::Function {
+                    params,
+                    captured_scope,
+                    body,
+                    return_type,
+                },
+                Value::Function {
+                    params: new_params,
+                    captured_scope: new_captured_scope,
+                    body: new_body,
+                    return_type: new_return_type,
+                },
+            ) => {
+                // TODO: function signature compatibility check?
+                *params = new_params;
+                *captured_scope = new_captured_scope;
+                *body = new_body;
+                *return_type = new_return_type;
+            }
+            (this, other) => {
+                return Err(format!(
+                    "Type mismatch. Expected {}, found {}",
+                    this.type_name(),
+                    other.type_name()
+                ));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -114,16 +176,19 @@ impl<'a> Interpreter<'a> {
     }
 
     fn assign(&mut self, name: &str, value: Value) -> Result<(), String> {
+        if name == "_" {
+            return Ok(());
+        }
         // Walk local scopes in reverse
         for scope in self.local_scopes.iter_mut().rev() {
-            if scope.variables.contains_key(name) {
-                scope.variables.insert(name.to_string(), value);
+            if let Some(var) = scope.variables.get_mut(name) {
+                var.assign(value)?;
                 return Ok(());
             }
         }
         // Check root scope
-        if self.root_scope.variables.contains_key(name) {
-            self.root_scope.variables.insert(name.to_string(), value);
+        if let Some(var) = self.root_scope.variables.get_mut(name) {
+            var.assign(value)?;
             return Ok(());
         }
         Err(format!("Undefined variable '{}'.", name))
@@ -148,21 +213,11 @@ impl<'a> Interpreter<'a> {
     fn call_builtin(&mut self, name: &str, args: &[Expr]) -> Result<Option<Value>, String> {
         match name {
             "print" => {
-                let values: Result<Vec<_>, _> =
-                    args.iter().map(|expr| self.eval_expression(expr)).collect();
-                let values = values?;
-                let output: Vec<String> = values
-                    .into_iter()
-                    .map(|value| match value {
-                        Value::Int(i) => i.to_string(),
-                        Value::Float(f) => f.to_string(),
-                        Value::Str(s) => s,
-                        Value::Bool(b) => b.to_string(),
-                        Value::Unit => "unit".into(),
-                        Value::Array(_) => "<array>".into(),
-                        Value::Function { .. } => "<function>".into(),
-                    })
+                let values: Result<Vec<_>, _> = args
+                    .iter()
+                    .map(|expr| self.eval_expression(expr).map(|v| v.display()))
                     .collect();
+                let output = values?;
                 writeln!(self.config.output, "{}", output.join(" "))
                     .map_err(|e| format!("Failed to write output: {}", e))?;
                 Ok(Some(Value::Unit))

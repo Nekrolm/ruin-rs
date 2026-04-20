@@ -24,7 +24,6 @@ pub fn eval(script: &str, scope: &mut Scope) -> Result<Value, String> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
 
     use super::*;
 
@@ -81,9 +80,7 @@ mod tests {
             let add_y : fn(x: int) -> int = x + y;
             add_y(5)
         "#;
-        let mut scope = Scope {
-            variables: HashMap::new(),
-        };
+        let mut scope = Scope::default();
         let result = eval(source, &mut scope);
         assert_eq!(result, Ok(Value::Int(15)));
     }
@@ -100,9 +97,7 @@ mod tests {
             };
             sign(5)
         "#;
-        let mut scope = Scope {
-            variables: HashMap::new(),
-        };
+        let mut scope = Scope::default();
         let result = eval(source, &mut scope);
         assert_eq!(result, Ok(Value::Int(1)));
     }
@@ -118,9 +113,7 @@ mod tests {
             };
             test(8)
         "#;
-        let mut scope = Scope {
-            variables: HashMap::new(),
-        };
+        let mut scope = Scope::default();
         let result = eval(source, &mut scope);
         assert_eq!(result, Ok(Value::Int(10)));
     }
@@ -236,9 +229,7 @@ mod tests {
             factorial
         "#;
 
-        let mut scope = Scope {
-            variables: HashMap::new(),
-        };
+        let mut scope = Scope::default();
         let result = eval(source, &mut scope);
         let func_value = result.unwrap();
 
@@ -399,9 +390,7 @@ mod tests {
 
     #[test]
     fn test_eval_with_scope() {
-        let mut initial_scope = Scope {
-            variables: HashMap::new(),
-        };
+        let mut initial_scope = Scope::default();
         initial_scope
             .variables
             .insert("x".to_string(), Value::Int(10));
