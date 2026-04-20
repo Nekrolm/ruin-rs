@@ -45,7 +45,9 @@ pub struct Interpreter {
 impl Interpreter {
     pub fn new() -> Self {
         Interpreter {
-            scopes: vec![Scope { variables: HashMap::new() }],
+            scopes: vec![Scope {
+                variables: HashMap::new(),
+            }],
             pending_return: None,
             pending_break: None,
             pending_continue: false,
@@ -60,7 +62,9 @@ impl Interpreter {
     }
 
     fn push_scope(&mut self) {
-        self.scopes.push(Scope { variables: HashMap::new() });
+        self.scopes.push(Scope {
+            variables: HashMap::new(),
+        });
     }
 
     fn pop_scope(&mut self) {
@@ -113,7 +117,12 @@ impl Interpreter {
                     let param_names: Vec<String> =
                         param_types.iter().map(|(pname, _)| pname.clone()).collect();
                     let captured_scope = Scope {
-                        variables: self.scopes.iter().flat_map(|s| &s.variables).map(|(k,v)| (k.clone(), v.clone())).collect(),
+                        variables: self
+                            .scopes
+                            .iter()
+                            .flat_map(|s| &s.variables)
+                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .collect(),
                     };
                     Value::Function {
                         params: param_names,
@@ -144,9 +153,15 @@ impl Interpreter {
                 return_type,
                 body,
             } => {
-                let param_names: Vec<String> = params.iter().map(|(pname, _)| pname.clone()).collect();
+                let param_names: Vec<String> =
+                    params.iter().map(|(pname, _)| pname.clone()).collect();
                 let captured_scope = Scope {
-                    variables: self.scopes.iter().flat_map(|s| &s.variables).map(|(k,v)| (k.clone(), v.clone())).collect(),
+                    variables: self
+                        .scopes
+                        .iter()
+                        .flat_map(|s| &s.variables)
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect(),
                 };
                 let value = Value::Function {
                     params: param_names,
@@ -181,7 +196,10 @@ impl Interpreter {
         let mut last = Value::Unit;
         for stmt in statements {
             last = self.execute_statement(stmt)?;
-            if self.pending_return.is_some() || self.pending_break.is_some() || self.pending_continue {
+            if self.pending_return.is_some()
+                || self.pending_break.is_some()
+                || self.pending_continue
+            {
                 break;
             }
         }
@@ -306,9 +324,15 @@ impl Interpreter {
                 body,
                 return_type,
             } => {
-                let param_names: Vec<String> = params.iter().map(|(name, _)| name.clone()).collect();
+                let param_names: Vec<String> =
+                    params.iter().map(|(name, _)| name.clone()).collect();
                 let captured_scope = Scope {
-                    variables: self.scopes.iter().flat_map(|s| &s.variables).map(|(k,v)| (k.clone(), v.clone())).collect(),
+                    variables: self
+                        .scopes
+                        .iter()
+                        .flat_map(|s| &s.variables)
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect(),
                 };
                 Ok(Value::Function {
                     params: param_names,
@@ -463,10 +487,9 @@ impl Interpreter {
             (Value::Float(a), Value::Float(b)) => Ok(Value::Bool(compare(a, b))),
             (Value::Int(a), Value::Float(b)) => Ok(Value::Bool(compare(a as f64, b))),
             (Value::Float(a), Value::Int(b)) => Ok(Value::Bool(compare(a, b as f64))),
-            (Value::Str(a), Value::Str(b)) => Ok(Value::Bool(compare(
-                a.len() as f64,
-                b.len() as f64,
-            ))),
+            (Value::Str(a), Value::Str(b)) => {
+                Ok(Value::Bool(compare(a.len() as f64, b.len() as f64)))
+            }
             _ => Err("Invalid operands for comparison".into()),
         }
     }
@@ -557,9 +580,7 @@ mod tests {
         // Extract captured scope from function
         let fn_val = fn_value.unwrap();
         match fn_val {
-            Value::Function {
-                captured_scope, ..
-            } => {
+            Value::Function { captured_scope, .. } => {
                 // Verify captured scope has both outer_var and inner_var
                 assert!(captured_scope.variables.contains_key("outer_var"));
                 assert!(captured_scope.variables.contains_key("inner_var"));
@@ -577,7 +598,6 @@ mod tests {
 
         // Pop inner scope and call function
         interpreter.pop_scope();
-
 
         // Manually call to test captured scope is used
         let result = interpreter.eval_expression(&fn_expr);
@@ -608,13 +628,8 @@ mod tests {
 
         // Check captured scope has inner x
         match fn_value.unwrap() {
-            Value::Function {
-                captured_scope, ..
-            } => {
-                assert_eq!(
-                    captured_scope.variables.get("x"),
-                    Some(&Value::Int(10))
-                );
+            Value::Function { captured_scope, .. } => {
+                assert_eq!(captured_scope.variables.get("x"), Some(&Value::Int(10)));
             }
             _ => panic!("Expected function"),
         }

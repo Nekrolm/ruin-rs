@@ -8,7 +8,10 @@ pub struct Parser {
 
 impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
-        Parser { tokens, position: 0 }
+        Parser {
+            tokens,
+            position: 0,
+        }
     }
 
     fn peek(&self) -> Option<&Token> {
@@ -96,7 +99,11 @@ impl Parser {
             self.expect(Token::Assign)?;
             let expr = self.parse_expression()?;
             self.expect(Token::Semicolon)?;
-            Ok(Stmt::Let { name, type_ann, expr })
+            Ok(Stmt::Let {
+                name,
+                type_ann,
+                expr,
+            })
         } else if self.check(|t| matches!(t, Token::Fn)) {
             self.bump();
             let name = self.consume_ident()?;
@@ -239,7 +246,12 @@ impl Parser {
 
     fn parse_comparison(&mut self) -> Result<Expr, String> {
         let mut expr = self.parse_additive()?;
-        while self.check(|t| matches!(t, Token::Lt) || matches!(t, Token::Gt) || matches!(t, Token::Le) || matches!(t, Token::Ge)) {
+        while self.check(|t| {
+            matches!(t, Token::Lt)
+                || matches!(t, Token::Gt)
+                || matches!(t, Token::Le)
+                || matches!(t, Token::Ge)
+        }) {
             let op = match self.bump() {
                 Some(Token::Lt) => BinaryOp::Lt,
                 Some(Token::Gt) => BinaryOp::Gt,
@@ -282,7 +294,9 @@ impl Parser {
     }
 
     fn parse_unary(&mut self) -> Result<Expr, String> {
-        if self.check(|t| matches!(t, Token::Minus) || matches!(t, Token::Not) || matches!(t, Token::Tilde)) {
+        if self.check(|t| {
+            matches!(t, Token::Minus) || matches!(t, Token::Not) || matches!(t, Token::Tilde)
+        }) {
             let op = match self.bump() {
                 Some(Token::Minus) => UnaryOp::Neg,
                 Some(Token::Not) => UnaryOp::Not,

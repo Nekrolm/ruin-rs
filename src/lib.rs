@@ -340,6 +340,82 @@ mod tests {
     }
 
     #[test]
+    fn test_loop_break_value() {
+        let source = r#"
+            let result : int = loop {
+                break 5;
+            };
+            result
+        "#;
+        let result = eval(source, Scope::default());
+        assert_eq!(result, Ok(Value::Int(5)));
+    }
+
+    #[test]
+    fn test_loop_continue_increments_counter() {
+        let source = r#"
+            let counter : int = 0;
+            let result : int = loop {
+                if counter == 3 {
+                    break counter;
+                }
+                counter = counter + 1;
+            };
+            result
+        "#;
+        let result = eval(source, Scope::default());
+        assert_eq!(result, Ok(Value::Int(3)));
+    }
+
+    #[test]
+    fn test_while_loop_continue_skips_value() {
+        let source = r#"
+            let total : int = 0;
+            let i : int = 0;
+            while i < 5 {
+                i = i + 1;
+                if i == 2 {
+                    continue;
+                }
+                total = total + i;
+            };
+            total
+        "#;
+        let result = eval(source, Scope::default());
+        assert_eq!(result, Ok(Value::Int(13)));
+    }
+
+    #[test]
+    fn test_return_from_loop_inside_function() {
+        let source = r#"
+            let f : fn() -> int = {
+                loop {
+                    return 42;
+                }
+            };
+            f()
+        "#;
+        let result = eval(source, Scope::default());
+        assert_eq!(result, Ok(Value::Int(42)));
+    }
+
+    #[test]
+    fn test_return_from_while_inside_function() {
+        let source = r#"
+            let f : fn() -> int = {
+                let i : int = 0;
+                while i < 5 {
+                    return 99;
+                }
+                0
+            };
+            f()
+        "#;
+        let result = eval(source, Scope::default());
+        assert_eq!(result, Ok(Value::Int(99)));
+    }
+
+    #[test]
     fn test_eval_with_scope() {
         let mut initial_scope = Scope {
             variables: HashMap::new(),

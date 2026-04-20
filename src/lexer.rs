@@ -185,7 +185,14 @@ pub fn lex(source: &str) -> Result<Vec<Token>, String> {
             c if c.is_ascii_digit() => {
                 let mut lexeme = String::new();
                 while let Some(&next) = chars.peek() {
-                    if next.is_ascii_digit() || next == '_' || next == '.' || next == 'e' || next == 'E' || next == '+' || next == '-' {
+                    if next.is_ascii_digit()
+                        || next == '_'
+                        || next == '.'
+                        || next == 'e'
+                        || next == 'E'
+                        || next == '+'
+                        || next == '-'
+                    {
                         lexeme.push(next);
                         chars.next();
                     } else {
