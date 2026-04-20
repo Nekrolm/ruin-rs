@@ -34,20 +34,20 @@ pub struct Scope {
     pub variables: HashMap<String, Value>,
 }
 
-pub struct Interpreter {
-    scopes: Vec<Scope>,
+pub struct Interpreter<'a> {
+    root_scope: &'a mut Scope,
+    local_scopes: Vec<Scope>,
     pending_return: Option<Value>,
     pending_break: Option<Value>,
     pending_continue: bool,
     loop_depth: usize,
 }
 
-impl Interpreter {
-    pub fn new() -> Self {
+impl<'a> Interpreter<'a> {
+    pub fn new(scope: &'a mut Scope) -> Self {
         Interpreter {
-            scopes: vec![Scope {
-                variables: HashMap::new(),
-            }],
+            root_scope: scope,
+            local_scopes: Vec::new(),
             pending_return: None,
             pending_break: None,
             pending_continue: false,
@@ -55,43 +55,50 @@ impl Interpreter {
         }
     }
 
-    pub fn set_global_scope(&mut self, scope: Scope) {
-        if let Some(global) = self.scopes.first_mut() {
-            *global = scope;
-        }
-    }
-
     fn push_scope(&mut self) {
-        self.scopes.push(Scope {
+        self.local_scopes.push(Scope {
             variables: HashMap::new(),
         });
     }
 
     fn pop_scope(&mut self) {
-        self.scopes.pop();
+        self.local_scopes.pop();
     }
 
     fn define(&mut self, name: String, value: Value) {
-        if let Some(scope) = self.scopes.last_mut() {
+        if let Some(scope) = self.local_scopes.last_mut() {
             scope.variables.insert(name, value);
+        } else {
+            self.root_scope.variables.insert(name, value);
         }
     }
 
     fn assign(&mut self, name: &str, value: Value) -> Result<(), String> {
-        for scope in self.scopes.iter_mut().rev() {
+        // Walk local scopes in reverse
+        for scope in self.local_scopes.iter_mut().rev() {
             if scope.variables.contains_key(name) {
                 scope.variables.insert(name.to_string(), value);
                 return Ok(());
             }
         }
+        // Check root scope
+        if self.root_scope.variables.contains_key(name) {
+            self.root_scope.variables.insert(name.to_string(), value);
+            return Ok(());
+        }
         Err(format!("Undefined variable '{}'.", name))
     }
 
     fn lookup(&self, name: &str) -> Result<Value, String> {
-        for scope in self.scopes.iter().rev() {
+        // Walk local scopes in reverse
+        for scope in self.local_scopes.iter().rev() {
             if let Some(value) = scope.variables.get(name) {
                 return Ok(value.clone());
             }
+        }
+        // Check root scope
+        if let Some(value) = self.root_scope.variables.get(name) {
+            return Ok(value.clone());
         }
         Err(format!("Undefined variable '{}'.", name))
     }
@@ -116,13 +123,20 @@ impl Interpreter {
                     // Create implicit function from the parameters and expression
                     let param_names: Vec<String> =
                         param_types.iter().map(|(pname, _)| pname.clone()).collect();
+                    let mut captured_vars: HashMap<String, Value> = self
+                        .root_scope
+                        .variables
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect();
+                    // Add variables from local scopes (in order, later ones override)
+                    for scope in &self.local_scopes {
+                        for (k, v) in &scope.variables {
+                            captured_vars.insert(k.clone(), v.clone());
+                        }
+                    }
                     let captured_scope = Scope {
-                        variables: self
-                            .scopes
-                            .iter()
-                            .flat_map(|s| &s.variables)
-                            .map(|(k, v)| (k.clone(), v.clone()))
-                            .collect(),
+                        variables: captured_vars,
                     };
                     Value::Function {
                         params: param_names,
@@ -155,13 +169,20 @@ impl Interpreter {
             } => {
                 let param_names: Vec<String> =
                     params.iter().map(|(pname, _)| pname.clone()).collect();
+                let mut captured_vars: HashMap<String, Value> = self
+                    .root_scope
+                    .variables
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                // Add variables from local scopes (in order, later ones override)
+                for scope in &self.local_scopes {
+                    for (k, v) in &scope.variables {
+                        captured_vars.insert(k.clone(), v.clone());
+                    }
+                }
                 let captured_scope = Scope {
-                    variables: self
-                        .scopes
-                        .iter()
-                        .flat_map(|s| &s.variables)
-                        .map(|(k, v)| (k.clone(), v.clone()))
-                        .collect(),
+                    variables: captured_vars,
                 };
                 let value = Value::Function {
                     params: param_names,
@@ -297,7 +318,7 @@ impl Interpreter {
 
                         self.push_scope();
                         // Restore captured scope
-                        if let Some(scope) = self.scopes.last_mut() {
+                        if let Some(scope) = self.local_scopes.last_mut() {
                             scope.variables.extend(captured_scope.variables.clone());
                         }
                         // Bind parameters
@@ -326,13 +347,20 @@ impl Interpreter {
             } => {
                 let param_names: Vec<String> =
                     params.iter().map(|(name, _)| name.clone()).collect();
+                let mut captured_vars: HashMap<String, Value> = self
+                    .root_scope
+                    .variables
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                // Add variables from local scopes (in order, later ones override)
+                for scope in &self.local_scopes {
+                    for (k, v) in &scope.variables {
+                        captured_vars.insert(k.clone(), v.clone());
+                    }
+                }
                 let captured_scope = Scope {
-                    variables: self
-                        .scopes
-                        .iter()
-                        .flat_map(|s| &s.variables)
-                        .map(|(k, v)| (k.clone(), v.clone()))
-                        .collect(),
+                    variables: captured_vars,
                 };
                 Ok(Value::Function {
                     params: param_names,
@@ -514,7 +542,7 @@ mod tests {
     #[test]
     fn test_function_captures_shadowed_variable() {
         // Outer scope: x = 10
-        let outer_scope = Scope {
+        let mut outer_scope = Scope {
             variables: {
                 let mut map = HashMap::new();
                 map.insert("x".to_string(), Value::Int(10));
@@ -522,8 +550,7 @@ mod tests {
             },
         };
 
-        let mut interpreter = Interpreter::new();
-        interpreter.set_global_scope(outer_scope);
+        let mut interpreter = Interpreter::new(&mut outer_scope);
 
         // Inner scope: push and set x = 20
         interpreter.push_scope();
@@ -552,7 +579,11 @@ mod tests {
 
     #[test]
     fn test_function_value_captures_scope() {
-        let mut interpreter = Interpreter::new();
+        let mut outer_scope = Scope {
+            variables: HashMap::new(),
+        };
+
+        let mut interpreter = Interpreter::new(&mut outer_scope);
 
         // Define outer variable
         interpreter.define("outer_var".to_string(), Value::Int(100));
@@ -606,7 +637,11 @@ mod tests {
 
     #[test]
     fn test_shadowing_in_nested_function_calls() {
-        let mut interpreter = Interpreter::new();
+        let mut outer_scope = Scope {
+            variables: HashMap::new(),
+        };
+
+        let mut interpreter = Interpreter::new(&mut outer_scope);
 
         // Outer: x = 5
         interpreter.define("x".to_string(), Value::Int(5));

@@ -9,16 +9,16 @@ pub use interpreter::{Scope, Value};
 pub fn run_program(source: &str) -> Result<(), String> {
     let tokens = lexer::lex(source)?;
     let program = parser::Parser::new(tokens).parse_program()?;
-    let mut interpreter = interpreter::Interpreter::new();
+    let mut scope = Scope::default();
+    let mut interpreter = interpreter::Interpreter::new(&mut scope);
     interpreter.execute_program(&program)?;
     Ok(())
 }
 
-pub fn eval(script: &str, initial_scope: Scope) -> Result<Value, String> {
+pub fn eval(script: &str, scope: &mut Scope) -> Result<Value, String> {
     let tokens = lexer::lex(script)?;
     let program = parser::Parser::new(tokens).parse_program()?;
-    let mut interpreter = interpreter::Interpreter::new();
-    interpreter.set_global_scope(initial_scope);
+    let mut interpreter = interpreter::Interpreter::new(scope);
     interpreter.execute_program(&program)
 }
 
@@ -36,7 +36,8 @@ mod tests {
             x + y
         "#;
 
-        let result = eval(source, Scope::default());
+        let mut scope = Scope::default();
+        let result = eval(source, &mut scope);
         assert_eq!(result, Ok(Value::Int(12)));
     }
 
@@ -46,7 +47,8 @@ mod tests {
             let add_one : fn(x: int) -> int = x + 1;
             add_one(5)
         "#;
-        let result = eval(source, Scope::default());
+        let mut scope = Scope::default();
+        let result = eval(source, &mut scope);
         assert_eq!(result, Ok(Value::Int(6)));
     }
 
@@ -56,7 +58,8 @@ mod tests {
             let add_one : fn(x: int) -> int = x + 1;
             add_one(5)
         "#;
-        let result = eval(source, Scope::default());
+        let mut scope = Scope::default();
+        let result = eval(source, &mut scope);
         assert_eq!(result, Ok(Value::Int(6)));
     }
 
@@ -66,7 +69,8 @@ mod tests {
             let add : fn(x: int, y: int) -> int = x + y;
             add(3, 4)
         "#;
-        let result = eval(source, Scope::default());
+        let mut scope = Scope::default();
+        let result = eval(source, &mut scope);
         assert_eq!(result, Ok(Value::Int(7)));
     }
 
@@ -77,12 +81,10 @@ mod tests {
             let add_y : fn(x: int) -> int = x + y;
             add_y(5)
         "#;
-        let result = eval(
-            source,
-            Scope {
-                variables: HashMap::new(),
-            },
-        );
+        let mut scope = Scope {
+            variables: HashMap::new(),
+        };
+        let result = eval(source, &mut scope);
         assert_eq!(result, Ok(Value::Int(15)));
     }
 
@@ -98,12 +100,10 @@ mod tests {
             };
             sign(5)
         "#;
-        let result = eval(
-            source,
-            Scope {
-                variables: HashMap::new(),
-            },
-        );
+        let mut scope = Scope {
+            variables: HashMap::new(),
+        };
+        let result = eval(source, &mut scope);
         assert_eq!(result, Ok(Value::Int(1)));
     }
 
@@ -118,12 +118,10 @@ mod tests {
             };
             test(8)
         "#;
-        let result = eval(
-            source,
-            Scope {
-                variables: HashMap::new(),
-            },
-        );
+        let mut scope = Scope {
+            variables: HashMap::new(),
+        };
+        let result = eval(source, &mut scope);
         assert_eq!(result, Ok(Value::Int(10)));
     }
 
@@ -134,12 +132,8 @@ mod tests {
             let add_one : fn(x: int) -> int = x + 1;
             mul_two(add_one(3))
         "#;
-        let result = eval(
-            source,
-            Scope {
-                variables: HashMap::new(),
-            },
-        );
+        let mut scope = Scope::default();
+        let result = eval(source, &mut scope);
         assert_eq!(result, Ok(Value::Int(8)));
     }
 
@@ -149,12 +143,9 @@ mod tests {
             let double : fn(x: int) -> int = x * 2;
             double(5) + 3
         "#;
-        let result = eval(
-            source,
-            Scope {
-                variables: HashMap::new(),
-            },
-        );
+        let mut scope = Scope::default();
+
+        let result = eval(source, &mut scope);
         assert_eq!(result, Ok(Value::Int(13)));
     }
 
@@ -178,10 +169,9 @@ mod tests {
             a_func
         "#;
 
-        let scope = Scope {
-            variables: HashMap::new(),
-        };
-        let result = eval(source, scope.clone());
+        let mut scope = Scope::default();
+
+        let result = eval(source, &mut scope);
         let func_value = result.unwrap();
 
         // Test case 1: B return path, A return path (x = 3)
@@ -189,14 +179,12 @@ mod tests {
         // A: 6 > 5, returns 6+1 = 7
         if let Value::Function { .. } = &func_value {
             let call_script = "a_func(3)";
-            let call_result = eval(
-                call_script,
-                Scope {
-                    variables: [("a_func".to_string(), func_value.clone())]
-                        .into_iter()
-                        .collect(),
-                },
-            );
+            let mut call_scope = Scope {
+                variables: [("a_func".to_string(), func_value.clone())]
+                    .into_iter()
+                    .collect(),
+            };
+            let call_result = eval(call_script, &mut call_scope);
             assert_eq!(call_result, Ok(Value::Int(7)));
         }
 
@@ -204,42 +192,36 @@ mod tests {
         // B: x > 0, returns 2*2 = 4
         // A: 4 <= 5, returns 4+2 = 6
         let call_script = "a_func(2)";
-        let call_result = eval(
-            call_script,
-            Scope {
-                variables: [("a_func".to_string(), func_value.clone())]
-                    .into_iter()
-                    .collect(),
-            },
-        );
+        let mut call_scope = Scope {
+            variables: [("a_func".to_string(), func_value.clone())]
+                .into_iter()
+                .collect(),
+        };
+        let call_result = eval(call_script, &mut call_scope);
         assert_eq!(call_result, Ok(Value::Int(6)));
 
         // Test case 3: B non-return path, A return path (x = -2)
         // B: x <= 0, returns -(-2)*3 = 6
         // A: 6 > 5, returns 6+1 = 7
         let call_script = "a_func(-2)";
-        let call_result = eval(
-            call_script,
-            Scope {
-                variables: [("a_func".to_string(), func_value.clone())]
-                    .into_iter()
-                    .collect(),
-            },
-        );
+        let mut call_scope = Scope {
+            variables: [("a_func".to_string(), func_value.clone())]
+                .into_iter()
+                .collect(),
+        };
+        let call_result = eval(call_script, &mut call_scope);
         assert_eq!(call_result, Ok(Value::Int(7)));
 
         // Test case 4: B non-return path, A non-return path (x = 0)
         // B: x <= 0, returns -(0)*3 = 0
         // A: 0 <= 5, returns 0+2 = 2
         let call_script = "a_func(0)";
-        let call_result = eval(
-            call_script,
-            Scope {
-                variables: [("a_func".to_string(), func_value.clone())]
-                    .into_iter()
-                    .collect(),
-            },
-        );
+        let mut call_scope = Scope {
+            variables: [("a_func".to_string(), func_value.clone())]
+                .into_iter()
+                .collect(),
+        };
+        let call_result = eval(call_script, &mut call_scope);
         assert_eq!(call_result, Ok(Value::Int(2)));
     }
 
@@ -254,58 +236,50 @@ mod tests {
             factorial
         "#;
 
-        let scope = Scope {
+        let mut scope = Scope {
             variables: HashMap::new(),
         };
-        let result = eval(source, scope.clone());
+        let result = eval(source, &mut scope);
         let func_value = result.unwrap();
 
         // Test factorial of 0
         let call_script = "factorial(0)";
-        let call_result = eval(
-            call_script,
-            Scope {
-                variables: [("factorial".to_string(), func_value.clone())]
-                    .into_iter()
-                    .collect(),
-            },
-        );
+        let mut call_scope = Scope {
+            variables: [("factorial".to_string(), func_value.clone())]
+                .into_iter()
+                .collect(),
+        };
+        let call_result = eval(call_script, &mut call_scope);
         assert_eq!(call_result, Ok(Value::Int(1)));
 
         // Test factorial of 1
         let call_script = "factorial(1)";
-        let call_result = eval(
-            call_script,
-            Scope {
-                variables: [("factorial".to_string(), func_value.clone())]
-                    .into_iter()
-                    .collect(),
-            },
-        );
+        let mut call_scope = Scope {
+            variables: [("factorial".to_string(), func_value.clone())]
+                .into_iter()
+                .collect(),
+        };
+        let call_result = eval(call_script, &mut call_scope);
         assert_eq!(call_result, Ok(Value::Int(1)));
 
         // Test factorial of 5
         let call_script = "factorial(5)";
-        let call_result = eval(
-            call_script,
-            Scope {
-                variables: [("factorial".to_string(), func_value.clone())]
-                    .into_iter()
-                    .collect(),
-            },
-        );
+        let mut call_scope = Scope {
+            variables: [("factorial".to_string(), func_value.clone())]
+                .into_iter()
+                .collect(),
+        };
+        let call_result = eval(call_script, &mut call_scope);
         assert_eq!(call_result, Ok(Value::Int(120)));
 
         // Test factorial of 3
         let call_script = "factorial(3)";
-        let call_result = eval(
-            call_script,
-            Scope {
-                variables: [("factorial".to_string(), func_value.clone())]
-                    .into_iter()
-                    .collect(),
-            },
-        );
+        let mut call_scope = Scope {
+            variables: [("factorial".to_string(), func_value.clone())]
+                .into_iter()
+                .collect(),
+        };
+        let call_result = eval(call_script, &mut call_scope);
         assert_eq!(call_result, Ok(Value::Int(6)));
     }
 
@@ -315,7 +289,8 @@ mod tests {
             fn add_one(x: int) -> int = x + 1;
             add_one(5)
         "#;
-        let result = eval(source, Scope::default());
+        let mut scope = Scope::default();
+        let result = eval(source, &mut scope);
         assert_eq!(result, Ok(Value::Int(6)));
     }
 
@@ -325,7 +300,8 @@ mod tests {
             fn identity(x: int) = x;
             identity(42)
         "#;
-        let result = eval(source, Scope::default());
+        let mut scope = Scope::default();
+        let result = eval(source, &mut scope);
         assert_eq!(result, Ok(Value::Int(42)));
     }
 
@@ -335,7 +311,8 @@ mod tests {
             fn add(x: int, y: int) -> int = x + y;
             add(3, 4)
         "#;
-        let result = eval(source, Scope::default());
+        let mut scope = Scope::default();
+        let result = eval(source, &mut scope);
         assert_eq!(result, Ok(Value::Int(7)));
     }
 
@@ -347,7 +324,8 @@ mod tests {
             };
             result
         "#;
-        let result = eval(source, Scope::default());
+        let mut scope = Scope::default();
+        let result = eval(source, &mut scope);
         assert_eq!(result, Ok(Value::Int(5)));
     }
 
@@ -363,7 +341,8 @@ mod tests {
             };
             result
         "#;
-        let result = eval(source, Scope::default());
+        let mut scope = Scope::default();
+        let result = eval(source, &mut scope);
         assert_eq!(result, Ok(Value::Int(3)));
     }
 
@@ -381,7 +360,8 @@ mod tests {
             };
             total
         "#;
-        let result = eval(source, Scope::default());
+        let mut scope = Scope::default();
+        let result = eval(source, &mut scope);
         assert_eq!(result, Ok(Value::Int(13)));
     }
 
@@ -395,7 +375,8 @@ mod tests {
             };
             f()
         "#;
-        let result = eval(source, Scope::default());
+        let mut scope = Scope::default();
+        let result = eval(source, &mut scope);
         assert_eq!(result, Ok(Value::Int(42)));
     }
 
@@ -411,7 +392,8 @@ mod tests {
             };
             f()
         "#;
-        let result = eval(source, Scope::default());
+        let mut scope = Scope::default();
+        let result = eval(source, &mut scope);
         assert_eq!(result, Ok(Value::Int(99)));
     }
 
@@ -424,7 +406,7 @@ mod tests {
             .variables
             .insert("x".to_string(), Value::Int(10));
         let script = "x + 5";
-        let result = eval(script, initial_scope);
+        let result = eval(script, &mut initial_scope);
         assert_eq!(result, Ok(Value::Int(15)));
     }
 }
