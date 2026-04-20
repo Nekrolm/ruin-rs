@@ -143,6 +143,85 @@ impl<'a> Interpreter<'a> {
         Err(format!("Undefined variable '{}'.", name))
     }
 
+    /// Call a built-in function. Returns Ok(Some(value)) if the function was called,
+    /// Ok(None) if it's not a built-in function, or Err(...) on error.
+    fn call_builtin(&mut self, name: &str, args: &[Expr]) -> Result<Option<Value>, String> {
+        match name {
+            "print" => {
+                let values: Result<Vec<_>, _> =
+                    args.iter().map(|expr| self.eval_expression(expr)).collect();
+                let values = values?;
+                let output: Vec<String> = values
+                    .into_iter()
+                    .map(|value| match value {
+                        Value::Int(i) => i.to_string(),
+                        Value::Float(f) => f.to_string(),
+                        Value::Str(s) => s,
+                        Value::Bool(b) => b.to_string(),
+                        Value::Unit => "unit".into(),
+                        Value::Array(_) => "<array>".into(),
+                        Value::Function { .. } => "<function>".into(),
+                    })
+                    .collect();
+                writeln!(self.config.output, "{}", output.join(" "))
+                    .map_err(|e| format!("Failed to write output: {}", e))?;
+                Ok(Some(Value::Unit))
+            }
+            "len" => {
+                if args.len() != 1 {
+                    return Err("len() expects exactly 1 argument".into());
+                }
+                let arg_val = self.eval_expression(&args[0])?;
+                match arg_val {
+                    Value::Array(elements) => Ok(Some(Value::Int(elements.len() as i64))),
+                    _ => Err("len() expects an array argument".into()),
+                }
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// Call a user-defined function with the given parameters, captured scope, body, and arguments.
+    fn call_user_function(
+        &mut self,
+        params: Vec<String>,
+        captured_scope: Scope,
+        body: Box<Expr>,
+        args: &[Expr],
+    ) -> Result<Value, String> {
+        if params.len() != args.len() {
+            return Err(format!(
+                "Function expects {} arguments, got {}",
+                params.len(),
+                args.len()
+            ));
+        }
+        let arg_values: Result<Vec<_>, _> =
+            args.iter().map(|expr| self.eval_expression(expr)).collect();
+        let arg_values = arg_values?;
+
+        self.push_scope();
+        // Restore captured scope
+        if let Some(scope) = self.local_scopes.last_mut() {
+            scope.variables.extend(captured_scope.variables.clone());
+        }
+        // Bind parameters
+        for (param, arg) in params.iter().zip(arg_values.iter()) {
+            self.define(param.clone(), arg.clone());
+        }
+
+        let result = self.eval_expression(&body)?;
+
+        let ret = if let Some(pending) = self.pending_return.take() {
+            pending
+        } else {
+            result
+        };
+
+        self.pop_scope();
+        Ok(ret)
+    }
+
     pub fn execute_program(&mut self, statements: &[Stmt]) -> Result<Value, String> {
         let mut last = Value::Unit;
         for statement in statements {
@@ -317,42 +396,26 @@ impl<'a> Interpreter<'a> {
                 }
             }
             Expr::Call { callee, args } => {
-                // Check if callee is a built-in function first
+                // Try to resolve callee name and first check user-defined functions in scope
                 if let Expr::Ident(name) = &**callee {
-                    if name == "print" {
-                        let values: Result<Vec<_>, _> =
-                            args.iter().map(|expr| self.eval_expression(expr)).collect();
-                        let values = values?;
-                        let output: Vec<String> = values
-                            .into_iter()
-                            .map(|value| match value {
-                                Value::Int(i) => i.to_string(),
-                                Value::Float(f) => f.to_string(),
-                                Value::Str(s) => s,
-                                Value::Bool(b) => b.to_string(),
-                                Value::Unit => "unit".into(),
-                                Value::Array(_) => "<array>".into(),
-                                Value::Function { .. } => "<function>".into(),
-                            })
-                            .collect();
-                        writeln!(self.config.output, "{}", output.join(" "))
-                            .map_err(|e| format!("Failed to write output: {}", e))?;
-                        return Ok(Value::Unit);
-                    } else if name == "len" {
-                        if args.len() != 1 {
-                            return Err("len() expects exactly 1 argument".into());
-                        }
-                        let arg_val = self.eval_expression(&args[0])?;
-                        match arg_val {
-                            Value::Array(elements) => {
-                                return Ok(Value::Int(elements.len() as i64));
-                            }
-                            _ => return Err("len() expects an array argument".into()),
-                        }
+                    // Check if there's a user-defined function with this name in scope
+                    if let Ok(Value::Function {
+                        params,
+                        captured_scope,
+                        body,
+                        return_type: _,
+                    }) = self.lookup(name)
+                    {
+                        return self.call_user_function(params, captured_scope, body, args);
+                    }
+
+                    // No user-defined function found, try built-in functions
+                    if let Some(result) = self.call_builtin(name, args)? {
+                        return Ok(result);
                     }
                 }
 
-                // Otherwise try to evaluate callee as a user-defined function
+                // Otherwise, evaluate callee as an expression (for computed function calls)
                 let func_val = self.eval_expression(callee)?;
                 match func_val {
                     Value::Function {
@@ -360,39 +423,7 @@ impl<'a> Interpreter<'a> {
                         captured_scope,
                         body,
                         return_type: _,
-                    } => {
-                        if params.len() != args.len() {
-                            return Err(format!(
-                                "Function expects {} arguments, got {}",
-                                params.len(),
-                                args.len()
-                            ));
-                        }
-                        let arg_values: Result<Vec<_>, _> =
-                            args.iter().map(|expr| self.eval_expression(expr)).collect();
-                        let arg_values = arg_values?;
-
-                        self.push_scope();
-                        // Restore captured scope
-                        if let Some(scope) = self.local_scopes.last_mut() {
-                            scope.variables.extend(captured_scope.variables.clone());
-                        }
-                        // Bind parameters
-                        for (param, arg) in params.iter().zip(arg_values.iter()) {
-                            self.define(param.clone(), arg.clone());
-                        }
-
-                        let result = self.eval_expression(&body)?;
-
-                        let ret = if let Some(pending) = self.pending_return.take() {
-                            pending
-                        } else {
-                            result
-                        };
-
-                        self.pop_scope();
-                        Ok(ret)
-                    }
+                    } => self.call_user_function(params, captured_scope, body, args),
                     _ => Err("Callee must be a function".into()),
                 }
             }
@@ -942,5 +973,48 @@ mod tests {
         // But element type must still match
         let value3 = Value::Array(vec![Value::Str("a".to_string())]);
         assert!(!Interpreter::check_type(&array_type, &value3));
+    }
+
+    #[test]
+    fn test_user_defined_function_shadows_builtin() {
+        let mut scope = Scope {
+            variables: HashMap::new(),
+        };
+
+        let mut interpreter = Interpreter::new(&mut scope);
+
+        // Define a user-defined function named "len" that returns 42
+        let len_fn = Value::Function {
+            params: vec!["x".to_string()],
+            captured_scope: Scope {
+                variables: HashMap::new(),
+            },
+            body: Box::new(Expr::Literal(Literal::Int(42))),
+            return_type: Some(TypeAnnotation::Int),
+        };
+        interpreter.define("len".to_string(), len_fn);
+
+        // Define an array to pass as argument
+        let array = Value::Array(vec![
+            Value::Int(1),
+            Value::Int(2),
+            Value::Int(3),
+            Value::Int(4),
+        ]);
+        interpreter.define("arr".to_string(), array);
+
+        // Call len(arr) - should return 42 from the user-defined function, not 4
+        let len_call = Expr::Call {
+            callee: Box::new(Expr::Ident("len".to_string())),
+            args: vec![Expr::Ident("arr".to_string())],
+        };
+
+        let result = interpreter.eval_expression(&len_call);
+        assert!(result.is_ok());
+        assert_eq!(
+            result.unwrap(),
+            Value::Int(42),
+            "User-defined len() should shadow built-in len()"
+        );
     }
 }
